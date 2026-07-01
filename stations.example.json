@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+from sqlalchemy.orm import Session
+
+from app.db.models import OutcomeRecord, PredictionEvaluation, PredictionRecord
+from app.ml.distributions import binary_log_loss
+from app.schemas.outcome import OutcomeCreate
+
+
+def record_outcome(db: Session, payload: OutcomeCreate) -> tuple[OutcomeRecord, int]:
+    outcome = db.query(OutcomeRecord).filter(OutcomeRecord.market_id == payload.market_id).one_or_none()
+    if outcome is None:
+        outcome = OutcomeRecord(
+            market_id=payload.market_id,
+            station_code=payload.station_code,
+            official_value=payload.official_value,
+            official_source=payload.official_source,
+            settled_at=payload.settled_at,
+            metadata_json=payload.metadata,
+        )
+        db.add(outcome)
+        db.flush()
+    else:
+        outcome.station_code = payload.station_code
+        outcome.official_value = payload.official_value
+        outcome.official_source = payload.official_source
+        outcome.settled_at = payload.settled_at
+        outcome.metadata_json = payload.metadata
+
+    predictions = (
+        db.query(PredictionRecord)
+        .filter(PredictionRecord.market_id == payload.market_id)
+        .all()
+    )
+    created = 0
+    for prediction in predictions:
+        existing = (
+            db.query(PredictionEvaluation)
+            .filter(PredictionEvaluation.prediction_id == prediction.id)
+            .one_or_none()
+        )
+        if existing:
+            continue
+        error = prediction.predicted_value - payload.official_value
+        event_outcome = None
+        brier = None
+        log_loss = None
+        if prediction.calibrated_probability is not None:
+            event_outcome = int(
+                (prediction.lower_bound is None or payload.official_value >= prediction.lower_bound)
+                and (prediction.upper_bound is None or payload.official_value < prediction.upper_bound)
+            )
+            brier = (prediction.calibrated_probability - event_outcome) ** 2
+            log_loss = binary_log_loss(prediction.calibrated_probability, event_outcome)
+        evaluation = PredictionEvaluation(
+            prediction_id=prediction.id,
+            outcome_id=outcome.id,
+            absolute_error=abs(error),
+            squared_error=error**2,
+            brier_score=brier,
+            log_loss=log_loss,
+            event_outcome=event_outcome,
+        )
+        db.add(evaluation)
+        created += 1
+    db.commit()
+    db.refresh(outcome)
+    return outcome, created

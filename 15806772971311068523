@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: weather_ml
+      POSTGRES_USER: weather_ml
+      POSTGRES_PASSWORD: weather_ml_local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weather_ml -d weather_ml"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://weather_ml:weather_ml_local@postgres:5432/weather_ml
+      REDIS_URL: redis://redis:6379/0
+      TASK_ALWAYS_EAGER: "false"
+      MODEL_STORE_URI: /srv/app/artifacts
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - model_artifacts:/srv/app/artifacts
+
+  worker:
+    build: .
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://weather_ml:weather_ml_local@postgres:5432/weather_ml
+      REDIS_URL: redis://redis:6379/0
+      TASK_ALWAYS_EAGER: "false"
+      MODEL_STORE_URI: /srv/app/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - model_artifacts:/srv/app/artifacts
+
+volumes:
+  postgres_data:
+  redis_data:
+  model_artifacts:

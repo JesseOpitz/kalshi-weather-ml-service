@@ -1,0 +1,54 @@
+"""Generate synthetic data for smoke tests only. Never use this output to justify live trading."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rows", type=int, default=1200)
+    parser.add_argument("--output", default="data/demo_training.csv")
+    args = parser.parse_args()
+    rng = np.random.default_rng(42)
+    dates = pd.date_range("2021-01-01", periods=args.rows, freq="D", tz="UTC")
+    seasonal = 62 + 24 * np.sin(2 * np.pi * (dates.dayofyear - 170) / 365.25)
+    forecast = seasonal + rng.normal(0, 2.4, args.rows)
+    actual = forecast + rng.normal(0, 2.0, args.rows) + 0.8 * np.sin(2 * np.pi * dates.dayofyear / 30)
+    lower = np.floor(forecast / 2) * 2
+    frame = pd.DataFrame(
+        {
+            "target_time": dates,
+            "station_code": "DEMO",
+            "market_type": "daily_high_temperature",
+            "latitude": 40.78,
+            "longitude": -73.97,
+            "elevation_m": 43,
+            "lead_hours": 24,
+            "forecast_mean": forecast,
+            "forecast_median": forecast,
+            "forecast_std": 2.0,
+            "forecast_min": forecast - 2.5,
+            "forecast_max": forecast + 2.5,
+            "latest_temperature": forecast - rng.normal(5, 2, args.rows),
+            "humidity": rng.uniform(35, 95, args.rows),
+            "wind_speed": rng.uniform(0, 20, args.rows),
+            "cloud_cover": rng.uniform(0, 100, args.rows),
+            "actual_value": actual,
+            "lower_bound": lower,
+            "upper_bound": lower + 2,
+            "market_yes_ask": np.clip(rng.normal(0.45, 0.14, args.rows), 0.05, 0.95),
+        }
+    )
+    path = Path(args.output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(path, index=False)
+    print(path)
+
+
+if __name__ == "__main__":
+    main()
