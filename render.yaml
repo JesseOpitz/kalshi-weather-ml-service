@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: kalshi-weather-ml-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: ML_SERVICE_API_KEYS
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: MODEL_STORE_URI
+        value: /srv/app/artifacts
+      - key: TASK_ALWAYS_EAGER
+        value: "true"
